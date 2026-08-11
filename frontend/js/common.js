@@ -1,9 +1,20 @@
 /**
- * Shared utilities: device identity and WebSocket URL builder.
- * Replaces the React-era lib/device.js
+ * Shared utilities: device identity, URL builders, V2V panel.
+ *
+ * BACKEND_URL is defined in config.js (loaded before this file).
+ * - Empty string "" = same origin (local dev, backend serves frontend)
+ * - "https://your-app.onrender.com" = deployed backend
  */
 
-const API_BASE = window.location.origin;
+/* ─── URL Builders ────────────────────────────────────────────── */
+
+function getBackendBase() {
+  // BACKEND_URL comes from config.js
+  if (typeof BACKEND_URL !== "undefined" && BACKEND_URL) {
+    return BACKEND_URL.replace(/\/+$/, ""); // strip trailing slash
+  }
+  return window.location.origin; // local dev fallback
+}
 
 function getDeviceId() {
   const key = "road-ai-device-id";
@@ -16,12 +27,14 @@ function getDeviceId() {
 }
 
 function wsUrl(path) {
-  const proto = window.location.protocol === "https:" ? "wss" : "ws";
-  return `${proto}://${window.location.host}${path}`;
+  const base = getBackendBase();
+  // Convert http(s) to ws(s)
+  const wsBase = base.replace(/^http/, "ws");
+  return `${wsBase}${path}`;
 }
 
 function apiUrl(path) {
-  return `${API_BASE}${path}`;
+  return `${getBackendBase()}${path}`;
 }
 
 /* ─── V2V Panel (shared component) ────────────────────────────── */

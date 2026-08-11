@@ -3,10 +3,9 @@ venv/
 .venv/
 __pycache__/
 *.pyc
-*.pt
 
-# Trained model weights (too large for git)
-backend/model/road_damage.pt
+# Fallback YOLO weights (auto-downloaded, not needed in repo)
+backend/yolov8n.pt
 
 # Training runs & checkpoints
 backend/runs/
@@ -15,7 +14,7 @@ backend/runs/
 backend/storage/uploads/
 backend/storage/processed/
 
-# Ultralytics cache / downloads
+# Ultralytics cache
 *.cache
 
 # OS files
