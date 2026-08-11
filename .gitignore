@@ -1,0 +1,28 @@
+# Virtual environments
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pt
+
+# Trained model weights (too large for git)
+backend/model/road_damage.pt
+
+# Training runs & checkpoints
+backend/runs/
+
+# Uploaded & processed videos
+backend/storage/uploads/
+backend/storage/processed/
+
+# Ultralytics cache / downloads
+*.cache
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
