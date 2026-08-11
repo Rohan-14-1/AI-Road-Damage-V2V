@@ -1,0 +1,26 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+.DS_Store
+.idea/
+.vscode/
+
+# Training artifacts (not needed at runtime)
+backend/runs/
+backend/data/
+backend/train.py
+backend/yolov8n.pt
+
+# Uploaded/processed videos (ephemeral in containers)
+backend/storage/uploads/*
+backend/storage/processed/*
+
+# Cache files
+*.cache
+
+# Docs
+*.md
+!backend/model/README.md
