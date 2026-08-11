@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Upload a video for offline road damage analysis — frame-by-frame YOLOv8 detection with annotated output video and detection log." />
+  <title>Upload Video — AI Road Damage Detection</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <div class="hazard-stripe"></div>
+
+  <div class="page-wrap">
+    <a href="index.html" class="back-link">&larr; Dashboard</a>
+    <h1 class="page-title">Upload &amp; Analyze Video</h1>
+
+    <div class="page-layout">
+
+      <!-- Main column -->
+      <div>
+        <!-- Dropzone -->
+        <div class="dropzone" id="dropzone">
+          <div class="dropzone-icon">📁</div>
+          <div style="margin-bottom: 12px">MP4, AVI, MOV, or WebM</div>
+          <label class="choose-btn" id="choose-label">
+            Choose Video
+            <input type="file" id="file-input" accept="video/mp4,video/avi,video/quicktime,video/webm" style="display:none" />
+          </label>
+        </div>
+
+        <!-- Preview (hidden until file chosen) -->
+        <video id="preview-video" class="preview-video hidden" controls></video>
+
+        <!-- Start button -->
+        <button class="btn-primary hidden" id="btn-analyze" style="margin-top:16px" onclick="startAnalysis()">Start Analysis</button>
+
+        <!-- Error -->
+        <div class="error-msg hidden" id="upload-error"></div>
+
+        <!-- Progress -->
+        <div class="progress-box hidden" id="progress-box">
+          <div class="progress-label">
+            <span id="progress-status">QUEUED</span>
+            <span class="mono" id="progress-info">0%</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" id="progress-fill"></div>
+          </div>
+        </div>
+
+        <!-- Results -->
+        <div class="results-box hidden" id="results-box">
+          <div class="stat-row stat-row-2" id="results-stats"></div>
+
+          <video id="output-video" class="preview-video" controls></video>
+
+          <div class="det-table-title">DETECTION LOG</div>
+          <div class="det-table" id="det-table"></div>
+        </div>
+      </div>
+
+      <!-- Side panel -->
+      <div class="side-panel">
+        <div id="v2v-container"></div>
+
+        <div class="note-box">
+          This mode represents offline testing/demo analysis, not the
+          live vehicle scenario. Hazard events found here are tagged
+          <code class="mono">source: uploaded_video</code> when
+          broadcast to the V2V mesh.
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="js/common.js"></script>
+  <script>
+    /* ─── State ─────────────────────────────────────────────────── */
+    let selectedFile = null;
+    let jobId = null;
+    let pollTimer = null;
+
+    const fileInput    = document.getElementById("file-input");
+    const dropzone     = document.getElementById("dropzone");
+    const previewVideo = document.getElementById("preview-video");
+    const btnAnalyze   = document.getElementById("btn-analyze");
+    const errorEl      = document.getElementById("upload-error");
+    const progressBox  = document.getElementById("progress-box");
+    const progressStatus = document.getElementById("progress-status");
+    const progressInfo = document.getElementById("progress-info");
+    const progressFill = document.getElementById("progress-fill");
+    const resultsBox   = document.getElementById("results-box");
+    const resultsStats = document.getElementById("results-stats");
+    const outputVideo  = document.getElementById("output-video");
+    const detTable     = document.getElementById("det-table");
+
+    /* ─── File selection ───────────────────────────────────────── */
+    fileInput.addEventListener("change", (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+
+      selectedFile = f;
+
+      // Show preview
+      previewVideo.src = URL.createObjectURL(f);
+      previewVideo.classList.remove("hidden");
+      dropzone.classList.add("hidden");
+      btnAnalyze.classList.remove("hidden");
+
+      // Reset state
+      errorEl.classList.add("hidden");
+      progressBox.classList.add("hidden");
+      resultsBox.classList.add("hidden");
+      jobId = null;
+    });
+
+    /* ─── Start analysis ───────────────────────────────────────── */
+    async function startAnalysis() {
+      if (!selectedFile) return;
+      errorEl.classList.add("hidden");
+
+      const form = new FormData();
+      form.append("file", selectedFile);
+
+      try {
+        const res = await fetch(apiUrl(`/video/upload?device_id=${getDeviceId()}`), {
+          method: "POST",
+          body: form,
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+
+        jobId = data.job_id;
+        btnAnalyze.classList.add("hidden");
+        progressBox.classList.remove("hidden");
+
+        pollTimer = setInterval(() => pollStatus(jobId), 1000);
+      } catch (err) {
+        showError("Upload failed: " + err.message);
+      }
+    }
+
+    /* ─── Poll status ──────────────────────────────────────────── */
+    async function pollStatus(id) {
+      try {
+        const res = await fetch(apiUrl(`/video/status/${id}`));
+        const data = await res.json();
+
+        const pct = Math.round((data.progress || 0) * 100);
+        progressStatus.textContent = data.status.toUpperCase();
+        progressInfo.textContent = `${pct}% · frame ${data.processed_frames}/${data.total_frames || "?"}`;
+        progressFill.style.width = pct + "%";
+
+        if (data.status === "done") {
+          clearInterval(pollTimer);
+          await showResults(id, data);
+        } else if (data.status === "error") {
+          clearInterval(pollTimer);
+          showError(data.error || "Processing failed.");
+        }
+      } catch (err) {
+        clearInterval(pollTimer);
+        showError("Lost connection to server.");
+      }
+    }
+
+    /* ─── Show results ─────────────────────────────────────────── */
+    async function showResults(id, statusData) {
+      try {
+        const res = await fetch(apiUrl(`/video/results/${id}`));
+        const results = await res.json();
+
+        // Stats
+        resultsStats.innerHTML = `
+          <div class="stat">
+            <div class="stat-value mono">${results.detection_count}</div>
+            <div class="stat-label">Total Detections</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value mono">${results.hazard_summary.length}</div>
+            <div class="stat-label">Hazard Events</div>
+          </div>
+        `;
+
+        // Output video
+        outputVideo.src = apiUrl(statusData.output_video_url);
+
+        // Detection log
+        const rows = results.detections.slice(0, 200);
+        detTable.innerHTML = rows.map(d => {
+          const sevClass = d.severity === "high" ? "high"
+                         : d.severity === "medium" ? "medium"
+                         : d.severity === "low" ? "low" : "unknown";
+          return `
+            <div class="det-table-row">
+              <span class="mono">${d.timestamp_s}s</span>
+              <span>${d.damage_type.replace(/_/g, " ")}</span>
+              <span class="mono">${Math.round(d.confidence * 100)}%</span>
+              <span class="sev-tag ${sevClass}">${d.severity}</span>
+            </div>
+          `;
+        }).join("");
+
+        resultsBox.classList.remove("hidden");
+      } catch (err) {
+        showError("Failed to load results: " + err.message);
+      }
+    }
+
+    /* ─── Error ────────────────────────────────────────────────── */
+    function showError(msg) {
+      errorEl.textContent = msg;
+      errorEl.classList.remove("hidden");
+    }
+
+    /* ─── Init V2V ─────────────────────────────────────────────── */
+    initV2VPanel("v2v-container");
+  </script>
+
+</body>
+</html>

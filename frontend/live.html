@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Live camera road damage detection — real-time YOLOv8 inference with bounding boxes, confidence scores, and V2V hazard alerts." />
+  <title>Live Camera — AI Road Damage Detection</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <div class="hazard-stripe"></div>
+
+  <div class="page-wrap">
+    <a href="index.html" class="back-link">&larr; Dashboard</a>
+    <h1 class="page-title">Live Camera Detection</h1>
+
+    <div class="page-layout">
+
+      <!-- Main column -->
+      <div>
+        <div class="video-wrap">
+          <video id="live-video" muted playsinline></video>
+          <canvas id="live-canvas"></canvas>
+          <div class="status-badge" id="status-badge">IDLE</div>
+        </div>
+
+        <div class="controls">
+          <button class="btn-primary" id="btn-start" onclick="startLive()">Start Live Detection</button>
+          <button class="btn-stop hidden" id="btn-stop" onclick="stopLive()">Stop Camera</button>
+        </div>
+
+        <div class="error-msg hidden" id="live-error"></div>
+
+        <div class="stat-row">
+          <div class="stat">
+            <div class="stat-value" id="stat-fps">0</div>
+            <div class="stat-label">FPS</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value" id="stat-inference">0 ms</div>
+            <div class="stat-label">Inference</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value" id="stat-frame">0</div>
+            <div class="stat-label">This Frame</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value" id="stat-total">0</div>
+            <div class="stat-label">Session Total</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Side panel -->
+      <div class="side-panel">
+        <div id="v2v-container"></div>
+
+        <div class="det-list">
+          <div class="det-list-title">CURRENT DETECTIONS</div>
+          <div id="det-list-body">
+            <div class="det-list-empty">None right now.</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="js/common.js"></script>
+  <script>
+    /* ─── State ─────────────────────────────────────────────────── */
+    let ws = null;
+    let sendTimer = null;
+    let running = false;
+    let detectionTotal = 0;
+    let geoLat = null;
+    let geoLon = null;
+
+    const SEND_INTERVAL_MS = 150; // ~6-7 fps
+
+    const video       = document.getElementById("live-video");
+    const canvas      = document.getElementById("live-canvas");
+    const badge       = document.getElementById("status-badge");
+    const btnStart    = document.getElementById("btn-start");
+    const btnStop     = document.getElementById("btn-stop");
+    const errorEl     = document.getElementById("live-error");
+    const statFps     = document.getElementById("stat-fps");
+    const statInfer   = document.getElementById("stat-inference");
+    const statFrame   = document.getElementById("stat-frame");
+    const statTotal   = document.getElementById("stat-total");
+    const detListBody = document.getElementById("det-list-body");
+
+    /* ─── Geolocation ──────────────────────────────────────────── */
+    if (navigator.geolocation) {
+      navigator.geolocation.watchPosition(
+        (pos) => {
+          geoLat = pos.coords.latitude;
+          geoLon = pos.coords.longitude;
+        },
+        () => {},
+        { enableHighAccuracy: false, maximumAge: 5000 }
+      );
+    }
+
+    /* ─── Start ────────────────────────────────────────────────── */
+    async function startLive() {
+      errorEl.classList.add("hidden");
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+          audio: false,
+        });
+        video.srcObject = stream;
+        await video.play();
+      } catch (err) {
+        showError("Camera access denied or unavailable: " + err.message);
+        return;
+      }
+
+      const deviceId = getDeviceId();
+      ws = new WebSocket(wsUrl(`/ws/live-detect/${deviceId}`));
+
+      ws.onopen = () => {
+        running = true;
+        btnStart.classList.add("hidden");
+        btnStop.classList.remove("hidden");
+        sendTimer = setInterval(sendFrame, SEND_INTERVAL_MS);
+      };
+
+      ws.onerror = () => showError("Could not reach detection server.");
+      ws.onclose = () => stopLive();
+
+      ws.onmessage = (msg) => {
+        const data = JSON.parse(msg.data);
+
+        // Update stats
+        statFps.textContent = data.fps;
+        statInfer.textContent = data.inference_ms + " ms";
+        statFrame.textContent = data.detections.length;
+        detectionTotal += data.detections.length;
+        statTotal.textContent = detectionTotal;
+
+        // Status badge
+        if (data.status === "ROAD DAMAGE DETECTED") {
+          badge.textContent = data.status;
+          badge.classList.add("alert");
+        } else {
+          badge.textContent = data.status;
+          badge.classList.remove("alert");
+        }
+
+        // Draw overlay
+        drawOverlay(data.detections);
+
+        // Detection list
+        renderDetList(data.detections);
+      };
+    }
+
+    /* ─── Send frame ───────────────────────────────────────────── */
+    function sendFrame() {
+      if (!video || !ws || ws.readyState !== WebSocket.OPEN || video.readyState < 2) return;
+
+      const off = document.createElement("canvas");
+      off.width = video.videoWidth;
+      off.height = video.videoHeight;
+      off.getContext("2d").drawImage(video, 0, 0);
+      const b64 = off.toDataURL("image/jpeg", 0.6);
+
+      ws.send(JSON.stringify({ frame: b64, lat: geoLat, lon: geoLon }));
+    }
+
+    /* ─── Draw overlay ─────────────────────────────────────────── */
+    function drawOverlay(dets) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      dets.forEach((d) => {
+        const [x1, y1, x2, y2] = d.box;
+        const color = d.severity === "high" ? "#e6483c"
+                    : d.severity === "medium" ? "#f2b705"
+                    : "#35c98c";
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+        const label = `${d.damage_type.replace(/_/g, " ").toUpperCase()} ${Math.round(d.confidence * 100)}%`;
+        ctx.font = "600 16px Inter, sans-serif";
+        const padding = 6;
+        const textWidth = ctx.measureText(label).width;
+        ctx.fillStyle = color;
+        ctx.fillRect(x1, Math.max(y1 - 26, 0), textWidth + padding * 2, 24);
+        ctx.fillStyle = "#14151a";
+        ctx.fillText(label, x1 + padding, Math.max(y1 - 8, 16));
+      });
+    }
+
+    /* ─── Render detection list ────────────────────────────────── */
+    function renderDetList(dets) {
+      if (dets.length === 0) {
+        detListBody.innerHTML = '<div class="det-list-empty">None right now.</div>';
+        return;
+      }
+      detListBody.innerHTML = dets.map(d =>
+        `<div class="det-row">
+          <span>${d.damage_type.replace(/_/g, " ")}</span>
+          <span class="mono">${Math.round(d.confidence * 100)}%</span>
+        </div>`
+      ).join("");
+    }
+
+    /* ─── Stop ─────────────────────────────────────────────────── */
+    function stopLive() {
+      clearInterval(sendTimer);
+      if (ws) ws.close();
+      ws = null;
+
+      const stream = video.srcObject;
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      video.srcObject = null;
+
+      running = false;
+      btnStart.classList.remove("hidden");
+      btnStop.classList.add("hidden");
+      badge.textContent = "IDLE";
+      badge.classList.remove("alert");
+
+      statFps.textContent = "0";
+      statInfer.textContent = "0 ms";
+      statFrame.textContent = "0";
+      detListBody.innerHTML = '<div class="det-list-empty">None right now.</div>';
+    }
+
+    /* ─── Error ────────────────────────────────────────────────── */
+    function showError(msg) {
+      errorEl.textContent = msg;
+      errorEl.classList.remove("hidden");
+    }
+
+    /* ─── Init V2V ─────────────────────────────────────────────── */
+    initV2VPanel("v2v-container");
+  </script>
+
+</body>
+</html>

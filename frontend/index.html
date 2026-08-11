@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="AI Road Damage Detection — Real-time road damage detection using YOLOv8 with live camera and video upload modes, plus simulated V2V hazard broadcasting." />
+  <title>AI Road Damage Detection</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Inter:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- Hazard stripe -->
+  <div class="hazard-stripe"></div>
+
+  <div class="dashboard-wrap">
+
+    <!-- Header -->
+    <header class="dashboard-header">
+      <div class="kicker">PROTOTYPE &middot; WEB-BASED &middot; V2V-SIMULATED</div>
+      <h1 class="dashboard-title">AI Road Damage Detection</h1>
+      <p class="dashboard-lead">
+        One trained model, two ways in: watch the road live through your
+        camera, or hand it a video to analyze offline. Confirmed hazards
+        go out over a simulated LoRa-inspired mesh to every other
+        connected device.
+      </p>
+    </header>
+
+    <!-- Cards grid -->
+    <div class="cards-grid">
+
+      <a href="live.html" class="card" id="card-live">
+        <div class="card-icon">📷</div>
+        <div class="card-title">Live Camera</div>
+        <div class="card-desc">
+          Real-time detection from your device camera. Bounding boxes,
+          confidence, FPS, and live V2V alerts as you drive.
+        </div>
+        <div class="card-cta">Start live detection &rarr;</div>
+      </a>
+
+      <a href="upload.html" class="card" id="card-upload">
+        <div class="card-icon">📁</div>
+        <div class="card-title">Upload Video</div>
+        <div class="card-desc">
+          Analyze a recorded MP4/AVI/MOV/WebM offline. Same model,
+          frame-by-frame, with an annotated video and full detection log.
+        </div>
+        <div class="card-cta">Upload &amp; analyze &rarr;</div>
+      </a>
+
+    </div>
+
+    <!-- Footer -->
+    <footer class="dashboard-footer">
+      Live camera = real vehicle use case. Uploaded video = offline
+      testing / demo mode. Both feed the same detector and the same
+      V2V broadcast layer, tagged by source.
+    </footer>
+
+  </div>
+
+</body>
+</html>
